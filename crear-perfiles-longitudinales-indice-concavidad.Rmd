@@ -1,0 +1,157 @@
+---
+title: "Calcular índices de concavidad y perfiles longitudinales de cursos fluviales"
+output: html_document
+bibliography: biblio.bib
+csl: apa.csl
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  collapse=TRUE,
+  eval = T
+)
+options(knitr.duplicate.label = "allow")
+```
+
+<!-- Este .md fue generado a partir del .Rmd homónimo. Edítese el .Rmd -->
+
+<!-- ## Retomar región de GRASS GIS creada en pasos previos -->
+
+```{r, include=FALSE}
+source(
+  knitr::purl(
+    'orden-de-red.Rmd',
+    output=tempfile()
+  )
+)
+knitr::opts_chunk$set(fig.path = "img/profilesconcav/")
+```
+
+## Imprimir lista de mapas ráster y vectoriales dentro en la región/localización activa
+
+* Nótese que los paquetes requeridos en esta sessión (`rgrass7`, `raster`, `leaflet`, `leafem`), fueron en el bloque anterior al ejecutarse el código contenido en el archivo `orden-de-red.Rmd`. Igualmente, dicho bloque de código creó todos los objetos necesarios para realizar este tutorial.
+
+```{r}
+execGRASS(
+  'g.list',
+  flags = 't',
+  parameters = list(
+    type = c('raster', 'vector')
+  )
+)
+```
+
+## Obtener coordenada
+
+```{r}
+mapview(order, col.regions = 'blue', legend = FALSE)
+```
+
+## Obtener cursos más largos (cargar función propia)
+
+```{r, results='hide', warning=FALSE, message=FALSE}
+devtools::source_url('https://raw.githubusercontent.com/geofis/rgrass/master/lfp_network.R') #Cargada como función "LfpNetwork"
+LfpNetwork(
+  xycoords = my_trans(c(-70.77261,18.90225)),
+  suffix = 'Pnt',
+  stream_vect = 'order_all',
+  direction = 'drainage-dir-de-rstr'
+)
+```
+
+## Imprimir lista de mapas ráster y vectoriales
+
+```{r}
+execGRASS(
+  'g.list',
+  flags = 't',
+  parameters = list(
+    type = c('raster', 'vector')
+  )
+)
+```
+
+## Representar con leaflet
+
+```{r, results='hide', warning=FALSE, message=FALSE}
+lfp <- readVECT('LfpNetwork_lfp_all_final_Pnt')
+```
+
+```{r}
+lfp4326 <- spTransform(lfp, CRSobj = CRS("+init=epsg:4326"))
+leaflet() %>%
+  addProviderTiles(providers$Stamen.Terrain, group = 'terrain') %>%
+  addPolylines(
+    data = lfp4326, weight = 3, opacity = 0.7, group = 'order',
+    label = ~as.character(cat),
+    highlightOptions = highlightOptions(color = "white",
+                                      weight = 5, bringToFront = F, opacity = 1),
+    labelOptions = labelOptions(noHide = T,
+                                style = list(
+                                  "font-size" = "8px",
+                                  "background" = "rgba(255, 255, 255, 0.5)",
+                                  "background-clip" = "padding-box",
+                                  "padding" = "1px"))) %>% 
+  leafem::addHomeButton(extent(lfp4326), 'Ver todo')
+```
+
+## Exportar a KML
+
+```{r, results='hide', warning=FALSE, message=FALSE}
+execGRASS(
+  'v.out.ogr',
+  flags = c('overwrite','quiet'),
+  parameters = list(
+    input = 'LfpNetwork_lfp_all_final_Pnt',
+    output = 'lfp_kml.kml',
+    format = 'KML',
+    dsco = 'NameField=cat'
+  )
+)
+```
+
+## Obtención de perfiles longitudinales e índices de concavidad
+
+```{r, results='hide', warning=FALSE, message=FALSE}
+source('lfp_profiles_concavity.R') #Cargado como función "LfpProfilesConcavity"
+pantuflas_conv_prof <- LfpProfilesConcavity(
+  xycoords = my_trans(c(-70.77262,18.90225)),
+  network = 'LfpNetwork_lfp_all_final_Pnt',
+  prefix = 'Ptl',
+  dem = 'dem',
+  direction = 'drainage-dir-de-rstr',
+  crs = '+init=epsg:32619',
+  smns = 0.5,
+  nrow = 3)
+```
+
+## Mostrar resultados
+
+```{r}
+pantuflas_conv_prof$profiles
+pantuflas_conv_prof$concavityindex
+pantuflas_conv_prof$dimensionlessprofiles
+```
+
+## Tabla dx/dy, tanto en metros como adimensional. Útiles para construir perfiles por cuenta propia
+
+```{r}
+pantuflas_conv_prof$lengthzdata %>% tibble::as.tibble()
+pantuflas_conv_prof$lengthzdatadmnls %>% tibble::as.tibble()
+```
+
+## Revisar en QGIS/Google Earth relación litología/concavidad
+
+Descargar archivo `lfp_kml.kml` localmente, superponer al mapa geológico usando QGIS y GoogleEarth, evaluar los índices de concavidad y formas del perfil longitudinal de los cursos más largos en relación con la litología, las fallas, el orden de red, entre otras variables.
+
+
+## Limpiar archivo de bloqueo del conjunto de mapas de GRASS
+
+```{r}
+unlink_.gislock()
+```
+
+## Referencias
